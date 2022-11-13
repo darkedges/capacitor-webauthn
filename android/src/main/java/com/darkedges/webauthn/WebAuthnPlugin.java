@@ -2,12 +2,15 @@ package com.darkedges.webauthn;
 
 import static com.google.android.gms.fido.Fido.getFido2ApiClient;
 
+import android.app.Activity;
 import android.app.PendingIntent;
-import android.content.Intent;
-import android.content.IntentSender;
 import android.util.Log;
 
 import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.IntentSenderRequest;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 
 import com.getcapacitor.JSObject;
@@ -16,25 +19,29 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.android.gms.fido.Fido;
+import com.google.android.gms.fido.fido2.api.common.AuthenticatorErrorResponse;
+import com.google.android.gms.fido.fido2.api.common.AuthenticatorResponse;
+import com.google.android.gms.fido.fido2.api.common.PublicKeyCredential;
 import com.google.android.gms.fido.fido2.api.common.PublicKeyCredentialCreationOptions;
-import com.google.android.gms.tasks.OnCanceledListener;
-import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
-import com.google.android.gms.tasks.Tasks;
-
-import org.apache.commons.beanutils.BeanUtils;
 
 @CapacitorPlugin(name = "WebAuthn")
 public class WebAuthnPlugin extends Plugin {
     private WebAuthn implementation = new WebAuthn();
+    ActivityResultLauncher createCredentialIntentLauncher;
 
     @Override
     public void load() {
         super.load();
         // Obtain the Fido2ApiClient instance.
         implementation.setFido2APICLient(getFido2ApiClient(bridge.getActivity()));
+        Log.i("intent", "1a");
+        createCredentialIntentLauncher = bridge.registerForActivityResult(new ActivityResultContracts.StartIntentSenderForResult(),
+                result -> verifyResult(result));
+        Log.i("intent", "1b");
     }
 
     @PluginMethod
@@ -79,10 +86,10 @@ public class WebAuthnPlugin extends Plugin {
             Log.d("intent", publicKeyCredentialCreationOptions.getUser().getDisplayName());
             Log.d("intent", publicKeyCredentialCreationOptions.getRp().getId());
             Log.d("intent", publicKeyCredentialCreationOptions.getRp().getName());
-            Log.d("intent",""+publicKeyCredentialCreationOptions.getParameters().get(0).getType());
-            Log.d("intent",""+publicKeyCredentialCreationOptions.getParameters().get(0).getAlgorithm().describeContents());
-            Log.d("intent",""+publicKeyCredentialCreationOptions.getParameters().get(1).getType());
-            Log.d("intent",""+publicKeyCredentialCreationOptions.getParameters().get(1).getAlgorithm().describeContents());
+            Log.d("intent", "" + publicKeyCredentialCreationOptions.getParameters().get(0).getType());
+            Log.d("intent", "" + publicKeyCredentialCreationOptions.getParameters().get(0).getAlgorithm().describeContents());
+            Log.d("intent", "" + publicKeyCredentialCreationOptions.getParameters().get(1).getType());
+            Log.d("intent", "" + publicKeyCredentialCreationOptions.getParameters().get(1).getAlgorithm().describeContents());
             Log.i("intent", "1");
             Task result = implementation.getIntent(publicKeyCredentialCreationOptions);
             Log.i("Intent", "2");
@@ -94,17 +101,8 @@ public class WebAuthnPlugin extends Plugin {
                             if (o != null) {
                                 Log.i("Intent", "All good");
                                 PendingIntent pendingIntent = (PendingIntent) o;
-                                int SIGN_REQUEST_CODE = 0;
-                                try {
-                                    getActivity().startIntentSenderForResult(
-                                            pendingIntent.getIntentSender(),
-                                            0,
-                                            null,
-                                            0,0,0,null
-                                    );
-                                } catch (IntentSender.SendIntentException e) {
-                                    e.printStackTrace();
-                                }
+                                //bridge.saveCall(call);
+                                createCredentialIntentLauncher.launch(new IntentSenderRequest.Builder(pendingIntent).build());
                             }
                         }
                     });
@@ -128,8 +126,24 @@ public class WebAuthnPlugin extends Plugin {
         }
     }
 
-    @ActivityCallback
-    private void verifyResult(PluginCall call, ActivityResult result){
-        Log.i("Intent","verifyResult");
+    private void verifyResult(ActivityResult activityResult) {
+        Log.i("Intent", "verifyResult");
+        Log.i("Intent", "verifyResult: "+activityResult.getResultCode());
+        Log.i("Intent", "verifyResult: "+activityResult.getData());
+        byte[] bytes = activityResult.getData().getByteArrayExtra(Fido.FIDO2_KEY_CREDENTIAL_EXTRA);
+        if (activityResult.getResultCode() != Activity.RESULT_OK) {
+            Log.i("Intent", "verifyResult: cancelled");
+        }
+        if (bytes==null) {
+            Log.i("Intent", "verifyResult: credential_error");
+        } else {
+            PublicKeyCredential credential = PublicKeyCredential.deserializeFromBytes(bytes);
+            AuthenticatorResponse response = credential.getResponse();
+            if (response instanceof AuthenticatorErrorResponse) {
+                Log.e("Intent", "verifyResult: " + ((AuthenticatorErrorResponse) response).getErrorMessage());
+            } else {
+                Log.i("Intent", "verifyResult: all good");
+            }
+        }
     }
 }
